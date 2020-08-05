@@ -23,6 +23,7 @@
 #include <SPI.h>
 #include <WiFi101.h>
 #include <PubSubClient.h>
+#include <ArduinoOTA.h>
 #include "credentials.h"
 
 //Setup Wifi
@@ -210,6 +211,9 @@ WiFi.setPins(8,7,4,2);
   lastReconnectAttempt = 0;
   lastPing = 0;
 
+  // start WiFi OTA
+  ArduinoOTA.begin(WiFi.localIP(), "PentairMQTTv2", mqttPassword, InternalStorage);
+
   //Flash the LED to show we are a go
   digitalWrite(status, HIGH);
   delay(500);
@@ -227,6 +231,10 @@ WiFi.setPins(8,7,4,2);
 }
 
 void loop() {
+  
+  // check for WiFi OTA updates
+  ArduinoOTA.poll();
+  
   digitalWrite(TXControl, RS485Receive);
 
   // Check for Telnet Clients
