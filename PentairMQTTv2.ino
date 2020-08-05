@@ -3,9 +3,10 @@
 // with some tweaks (probably for the worse) and implemented the MQTT communication
 
 // Adapted from original PentairMQTT by nstone97
-// (https://github.com/nstone97/PentairMQTT)
-// with modifications. Moved to WiFi101 library, from now deprecated Adafruit WINC1500 library,
-// and added support for mqtt username/password
+// (https://github.com/nstone97/PentairMQTT) with modifications. 
+
+// Moved to WiFi101 library, from now deprecated Adafruit WINC1500 library,
+// added support for mqtt username/password, added support for solar temperature
 
 // This sketch sets up 3 telnet servers - 23, 8001, 8002 which all serve different functions
 // 23 - General status of the RS485 (Packet output and message information) and MQTT
@@ -40,10 +41,10 @@ int status = 13;
 int wlstatus = WL_IDLE_STATUS;     // the Wifi radio's status
 
 // Setup the Telenet Servers
-WiFiServer tstatus(23);	// Regular output server
-WiFiServer tdebug(8001);	// Debugging output server
-WiFiServer tstream(8002);	// Raw stream from the RS485 Bus
-WiFiClient cStatus;		// Status client
+WiFiServer tstatus(23);  // Regular output server
+WiFiServer tdebug(8001);  // Debugging output server
+WiFiServer tstream(8002); // Raw stream from the RS485 Bus
+WiFiClient cStatus;   // Status client
 
 // Callback function header -- added 8/3/20 AP
 void mqttCallback(char* topic, byte* payload, unsigned int length);
@@ -64,7 +65,7 @@ long lastSend = 0;
 #define TXControl 9
 
 // Setup the RS485 Variables
-char pc;								// CHAR on the last cycle
+char pc;                // CHAR on the last cycle
 uint8_t buffer[256];
 uint8_t* bPointer;
 uint8_t bufferOfBytes[256];
@@ -92,7 +93,9 @@ int chkSumValue;
 int poolTemp;
 int oldPoolTemp;
 int airTemp;
+int solarTemp;
 int oldAirTemp;
+int oldSolarTemp;
 int poolMode;
 int featureMode;
 int panelHour;
@@ -127,6 +130,7 @@ bool sendCommand = false;
 char mqttWifiStrength[] PROGMEM = "/8230/backyard/pool/controller/wifi";
 char mqttWaterTemp[] PROGMEM = "/8230/backyard/pool/watertemp";
 char mqttAirTemp[] PROGMEM = "/8230/backyard/pool/airtemp";
+char mqttSolarTemp[] PROGMEM = "/8230/backyard/pool/solartemp";
 char mqttPumpState[] PROGMEM = "/8230/backyard/pool/pump/state";
 char mqttLightState[] PROGMEM = "/8230/backyard/pool/light/state";
 char mqttWaterfallState[] PROGMEM = "/8230/backyard/pool/waterfall/state";
@@ -141,16 +145,16 @@ char mqttSubWF[] PROGMEM = "/8230/backyard/pool/waterfall/set";
 char mqttSubBub[] PROGMEM = "/8230/backyard/pool/bubbler/set";
 char mqttSubChlor[] PROGMEM = "/8230/backyard/pool/chlor/set";
 
-//   PACKET FORMAT				 <------------------NOISE---------------->  <------PREAMBLE------>  Sub   Dest  Src   CFI   Len   Dat1  Dat2  ChkH  ChkL     //Checksum is sum of bytes A5 thru Dat2.
-byte pumpOn[] PROGMEM =			{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xA5, 0x01, 0x10, 0x22, 0x86, 0x02, 0x06, 0x01, 0x01, 0x67 };
-byte pumpOff[] PROGMEM =		{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xA5, 0x01, 0x10, 0x22, 0x86, 0x02, 0x06, 0x00, 0x01, 0x66 };
-byte poolLightOn[] PROGMEM =	{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xA5, 0x01, 0x10, 0x22, 0x86, 0x02, 0x03, 0x01, 0x01, 0x64 };
-byte poolLightOff[] PROGMEM =	{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xA5, 0x01, 0x10, 0x22, 0x86, 0x02, 0x03, 0x00, 0x01, 0x63 };
-byte waterFallOn[] PROGMEM =	{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xA5, 0x01, 0x10, 0x22, 0x86, 0x02, 0x0B, 0x01, 0x01, 0x6C };
-byte waterFallOff[] PROGMEM =	{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xA5, 0x01, 0x10, 0x22, 0x86, 0x02, 0x0B, 0x00, 0x01, 0x6B };
-byte bubblerOn[] PROGMEM =		{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xA5, 0x01, 0x10, 0x22, 0x86, 0x02, 0x0C, 0x01, 0x01, 0x6D };
-byte bubblerOff[] PROGMEM =		{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xA5, 0x01, 0x10, 0x22, 0x86, 0x02, 0x0C, 0x00, 0x01, 0x6C };
-byte chlorSetPct[]  =			{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xA5, 0x01, 0x10, 0x22, 0x99, 0x04, 0x01, 0x02, 0x00, 0x00, 0x01, 0x7C };
+//   PACKET FORMAT         <------------------NOISE---------------->  <------PREAMBLE------>  Sub   Dest  Src   CFI   Len   Dat1  Dat2  ChkH  ChkL     //Checksum is sum of bytes A5 thru Dat2.
+byte pumpOn[] PROGMEM =     { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xA5, 0x01, 0x10, 0x22, 0x86, 0x02, 0x06, 0x01, 0x01, 0x67 };
+byte pumpOff[] PROGMEM =    { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xA5, 0x01, 0x10, 0x22, 0x86, 0x02, 0x06, 0x00, 0x01, 0x66 };
+byte poolLightOn[] PROGMEM =  { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xA5, 0x01, 0x10, 0x22, 0x86, 0x02, 0x03, 0x01, 0x01, 0x64 };
+byte poolLightOff[] PROGMEM = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xA5, 0x01, 0x10, 0x22, 0x86, 0x02, 0x03, 0x00, 0x01, 0x63 };
+byte waterFallOn[] PROGMEM =  { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xA5, 0x01, 0x10, 0x22, 0x86, 0x02, 0x0B, 0x01, 0x01, 0x6C };
+byte waterFallOff[] PROGMEM = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xA5, 0x01, 0x10, 0x22, 0x86, 0x02, 0x0B, 0x00, 0x01, 0x6B };
+byte bubblerOn[] PROGMEM =    { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xA5, 0x01, 0x10, 0x22, 0x86, 0x02, 0x0C, 0x01, 0x01, 0x6D };
+byte bubblerOff[] PROGMEM =   { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xA5, 0x01, 0x10, 0x22, 0x86, 0x02, 0x0C, 0x00, 0x01, 0x6C };
+byte chlorSetPct[]  =     { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xA5, 0x01, 0x10, 0x22, 0x99, 0x04, 0x01, 0x02, 0x00, 0x00, 0x01, 0x7C };
 
 // Return the Free Ram for a printout
 extern "C" char *sbrk(int i);
@@ -189,11 +193,11 @@ WiFi.setPins(8,7,4,2);
     }
   }
 
-  tstatus.begin();		// Start the telnet servers
+  tstatus.begin();    // Start the telnet servers
   tdebug.begin();
   tstream.begin();
 
-  Serial1.begin(9600);	// Kick on the Serial Port
+  Serial1.begin(9600);  // Kick on the Serial Port
 
   //Setup the Buffer array
   memset(buffer, 0, sizeof(buffer));
@@ -252,15 +256,15 @@ void loop() {
 
   // CHeck if we need to send a command - and only do it if we aren't in the middle of buffering a packet
   if (sendCommand && goToCase == 1 && !Serial1.available()) {
-    if (now - lastSend > 5000) {					// Send commands every 2 seconds until system responds
+    if (now - lastSend > 5000) {          // Send commands every 2 seconds until system responds
       lastSend = now;
 
-      if (pumpSet != pumpState) {						//Send the pump command
+      if (pumpSet != pumpState) {           //Send the pump command
         if (cStatus && cStatus.connected()) cStatus.println(F("Sending Pump Command"));
         if (pumpSet == 0) sendRS485(pumpOff, sizeof(pumpOff));
         else if (pumpSet == 1) sendRS485(pumpOn, sizeof(pumpOn));
       }
-      else if (lightSet != lightState) {						//Send the pump command
+      else if (lightSet != lightState) {            //Send the pump command
         if (cStatus && cStatus.connected()) cStatus.println(F("Sending Light Command"));
         if (lightSet == 0) sendRS485(poolLightOff, sizeof(poolLightOff));
         else if (lightSet == 1) sendRS485(poolLightOn, sizeof(poolLightOn));
@@ -511,8 +515,8 @@ void loop() {
         clear485Bus();
         if (cdebug && cdebug.connected()) cdebug.println(F("step 32"));
         break;
-    }															// end switch( goToCase )
-  }																// while serial available
+    }                             // end switch( goToCase )
+  }                               // while serial available
 
   //Update the MQTT broker if a Frame had been received and we are connected!
   if (frameReceived && mqtt.connected()) {
@@ -548,8 +552,8 @@ void processPentair(uint8_t* buffer, int len, WiFiClient client) {
     }
     int i = 0;
     //while (i < len) {
-    //	printByteData(buffer[i++],client);
-    //	client.print(" ");
+    //  printByteData(buffer[i++],client);
+    //  client.print(" ");
     //}
     //client.println();
   }
@@ -565,7 +569,8 @@ void processPentair(uint8_t* buffer, int len, WiFiClient client) {
       oldLightState = lightState;
       oldWaterfallState = waterfallState;
       oldBubblerState = bubblerState;
-      
+      oldSolarTemp = solarTemp;
+      solarTemp = bufferOfBytes[25];                            // Trying to get solar temp
       
       if (poolMode == 0x20 || poolMode == 0x24) {
         pumpState = 1;
@@ -603,12 +608,15 @@ void processPentair(uint8_t* buffer, int len, WiFiClient client) {
       if (bubblerState != bubblerSet) bubblerSet = bubblerState;
 
       // Status Output!
-      if	(client && client.connected()) {
+      if  (client && client.connected()) {
         client.print(F("Water Temp............. "));
         client.print(poolTemp);
         client.println(F(" degF"));
         client.print(F("Air Temp............... "));
         client.print(airTemp);
+        client.println(F(" degF"));
+        client.print(F("Solar Temp............... "));
+        client.print(solarTemp);
         client.println(F(" degF"));
         client.print(F("Panel time............. "));
         client.print(panelHour);
@@ -675,8 +683,8 @@ void processIntellichlor(uint8_t* buffer, int len, WiFiClient client) {
     }
     int i = 0;
     //while (i < len) {
-    //	printByteData(buffer[i++], client);
-    //	client.print(" ");
+    //  printByteData(buffer[i++], client);
+    //  client.print(" ");
     //}
     //client.println();
   }
@@ -746,6 +754,13 @@ bool mqttUpdate(WiFiClient client) {
     oldAirTemp = airTemp;
     if (!mqttPubInt(mqttAirTemp, airTemp, true, client)) return false;
   }
+  if (solarTemp != oldSolarTemp) {
+    if (client && client.connected()) {
+      client.println(F("Sending Solar Temperature Info to MQTT "));
+    }
+    oldSolarTemp = solarTemp;
+    if (!mqttPubInt(mqttSolarTemp, solarTemp, true, client)) return false;
+  }
   if (pumpState != oldPumpState) {
     if (client && client.connected()) {
       client.println(F("Sending Pump State to MQTT "));
@@ -805,12 +820,13 @@ bool mqttUpdate(WiFiClient client) {
   return true;
 }
 
-bool mqttHeartBeat(WiFiClient client) {			// Send a full update to the MQTT server
+bool mqttHeartBeat(WiFiClient client) {     // Send a full update to the MQTT server
   if (!mqttPubInt(mqttWifiStrength, WiFi.RSSI(), true, client)) return false;
-  if (pumpState == 1) {				// Only send the pool water temperature if the pump is running
+  if (pumpState == 1) {       // Only send the pool water temperature if the pump is running
     if (!mqttPubInt(mqttWaterTemp, poolTemp, true, client)) return false;
   }
   if (!mqttPubInt(mqttAirTemp, airTemp, true, client)) return false;
+  if (!mqttPubInt(mqttSolarTemp, solarTemp, true, client)) return false;
   if (!mqttPubInt(mqttPumpState, pumpState, true, client)) return false;
   if (!mqttPubInt(mqttLightState, lightState, true, client)) return false;
   if (!mqttPubInt(mqttWaterfallState, waterfallState, true, client)) return false;
