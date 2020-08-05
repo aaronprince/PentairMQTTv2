@@ -23,12 +23,13 @@
 #include <SPI.h>
 #include <WiFi101.h>
 #include <PubSubClient.h>
+#include "credentials.h"
 
 //Setup Wifi
-char ssid[] = "yourssid";                 // your network SSID (name)
-char pass[] = "yourpassword";             // your network password
-char mqttUser[] = "yourMqttUser";         // your MQTT user
-char mqttPassword[] = "yourMqttPassword"; // your MQTT password
+char ssid[] = wifi_ssid;
+char pass[] = wifi_pass;
+char mqttUser[] = mqtt_user; 
+char mqttPassword[] = mqtt_password;
 
 //Output LED
 int status = 13;
@@ -46,7 +47,7 @@ WiFiServer tdebug(8001);  // Debugging output server
 WiFiServer tstream(8002); // Raw stream from the RS485 Bus
 WiFiClient cStatus;   // Status client
 
-// Callback function header -- added 8/3/20 AP
+// Callback function header 
 void mqttCallback(char* topic, byte* payload, unsigned int length);
 
 //Set up the ethernet client
@@ -615,7 +616,7 @@ void processPentair(uint8_t* buffer, int len, WiFiClient client) {
         client.print(F("Air Temp............... "));
         client.print(airTemp);
         client.println(F(" degF"));
-        client.print(F("Solar Temp............... "));
+        client.print(F("Solar Temp............. "));
         client.print(solarTemp);
         client.println(F(" degF"));
         client.print(F("Panel time............. "));
