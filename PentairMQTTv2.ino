@@ -107,6 +107,10 @@ int pumpSet;
 int lightState = 3;
 int oldLightState;
 int lightSet;
+int heaterState;
+int oldHeaterState;
+int heater;
+int oldHeater;
 int waterfallState;
 int oldWaterfallState;
 int waterfallSet;
@@ -135,6 +139,7 @@ char mqttSolarTemp[] PROGMEM = "/8230/backyard/pool/solartemp";
 char mqttPumpState[] PROGMEM = "/8230/backyard/pool/pump/state";
 char mqttLightState[] PROGMEM = "/8230/backyard/pool/light/state";
 char mqttWaterfallState[] PROGMEM = "/8230/backyard/pool/waterfall/state";
+char mqttHeater[] PROGMEM = "/8230/backyard/pool/heater/state";
 char mqttBubblerState[] PROGMEM = "/8230/backyard/pool/bubbler/state";
 char mqttPumpRPM[] PROGMEM = "/8230/backyard/pool/pump/rpm";
 char mqttPumpWatt[] PROGMEM = "/8230/backyard/pool/pump/watt";
@@ -572,6 +577,8 @@ void processPentair(uint8_t* buffer, int len, WiFiClient client) {
       oldBubblerState = bubblerState;
       oldSolarTemp = solarTemp;
       solarTemp = bufferOfBytes[25];                            // Trying to get solar temp
+      oldHeaterState = heaterState;  
+      heaterState = bufferOfBytes[16];
       
       if (poolMode == 0x20 || poolMode == 0x24) {
         pumpState = 1;
@@ -601,6 +608,12 @@ void processPentair(uint8_t* buffer, int len, WiFiClient client) {
       else {
         bubblerState = 0;
       }
+      if (heaterState == 0x33) {
+        heater = 1;       
+      }
+      else {
+        heater = 0;
+      }
 
       //Look for uncommanded changes
       if (pumpState != pumpSet) pumpSet = pumpState;
@@ -619,6 +632,8 @@ void processPentair(uint8_t* buffer, int len, WiFiClient client) {
         client.print(F("Solar Temp............. "));
         client.print(solarTemp);
         client.println(F(" degF"));
+        client.print(F("Heating................ "));
+        client.println(heater);
         client.print(F("Panel time............. "));
         client.print(panelHour);
         client.print(F(":"));
@@ -762,6 +777,13 @@ bool mqttUpdate(WiFiClient client) {
     oldSolarTemp = solarTemp;
     if (!mqttPubInt(mqttSolarTemp, solarTemp, true, client)) return false;
   }
+  if (heater != oldHeater) {
+    if (client && client.connected()) {
+      client.println(F("Sending Heater Info to MQTT "));
+    }
+    oldAirTemp = airTemp;
+    if (!mqttPubInt(mqttAirTemp, airTemp, true, client)) return false;
+  }
   if (pumpState != oldPumpState) {
     if (client && client.connected()) {
       client.println(F("Sending Pump State to MQTT "));
@@ -827,6 +849,7 @@ bool mqttHeartBeat(WiFiClient client) {     // Send a full update to the MQTT se
     if (!mqttPubInt(mqttWaterTemp, poolTemp, true, client)) return false;
   }
   if (!mqttPubInt(mqttAirTemp, airTemp, true, client)) return false;
+  if (!mqttPubInt(mqttHeater, heater, true, client)) return false;
   if (!mqttPubInt(mqttSolarTemp, solarTemp, true, client)) return false;
   if (!mqttPubInt(mqttPumpState, pumpState, true, client)) return false;
   if (!mqttPubInt(mqttLightState, lightState, true, client)) return false;
